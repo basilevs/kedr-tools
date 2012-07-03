@@ -1,0 +1,3 @@
+[submodule "libcamac"]
+	path = libcamac
+	url = git://github.com/basilevs/libcamac.git
