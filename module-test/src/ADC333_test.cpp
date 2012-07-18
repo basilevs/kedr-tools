@@ -6,7 +6,7 @@
 #include <tools/CamacAddressParser.h>
 #include <tools/CamacErrorPrinter.h>
 #include <ADC333.h>
-
+#include <tools/lam_wait.h>
 
 using namespace std;
 int main(int argc, char * argv[]) {
@@ -71,7 +71,7 @@ int main(int argc, char * argv[]) {
 	}
 
 	df_timeout_t timeout = 100*1000;
-	rv = module.WaitLAM(&timeout);
+	rv = lam_wait(module, &timeout);
 
 	if (rv & CAMAC_CC_ERRORS) {
 		cerr << "Error while waiting for LAM: " << CamacErrorPrinter(rv) << endl;
