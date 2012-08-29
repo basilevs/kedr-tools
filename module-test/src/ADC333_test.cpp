@@ -7,10 +7,10 @@
 #include <tools/CamacErrorPrinter.h>
 #include <ADC333.h>
 #include <tools/lam_wait.h>
+#include <curses.h>
 
 
-
-#define HANDLE_ERROR(x, message) {int a = x; if (a & CAMAC_CC_ERRORS) cerr << message << ": " << CamacErrorPrinter(a) << endl; return 8;}
+#define HANDLE_ERROR(x, message) {int a = (x & ~CAMAC_CC_NOT_Q); if (a & CAMAC_CC_ERRORS) {cerr << message << ": " <<CamacErrorPrinter(a) << endl; return 8;}}
 using namespace std;
 int main(int argc, char * argv[]) {
 	CamacAddressParser address("k/0/0/0");
@@ -19,9 +19,9 @@ int main(int argc, char * argv[]) {
 	unsigned gain = 0;
 
 	int opt;
-	while ((opt = getopt(argc, argv, "hrmca:g:")) != -1) {
+	while ((opt = getopt(argc, argv, "hrmc:a:g:")) != -1) {
 		switch(opt) {
-			case 'a':
+			case 'a':	
 				if (address.parse(optarg)) {
 					cerr << "Invalid camac address: " << optarg << endl;
 					return 1;
@@ -54,9 +54,9 @@ int main(int argc, char * argv[]) {
 			default:
 				cout <<
 				argv[0] <<
-				" -a address [-h] [-c number [-c number ...]]" <<
+				" -a address [-h] [-c number [-c number ...]]\n"
 				"Options:\n"
-				"-m          - manual trigger. Press Enter to emulate trigger.\n"
+				" -m         - manual trigger. Press Enter to emulate trigger.\n"
 				" -a address - use this address\n"
 				" -r         - cycle mode. Readout stops on signal.\n"
 				" -g [0..3]  - gain mode.\n"
@@ -93,35 +93,43 @@ int main(int argc, char * argv[]) {
 		module.EnableChannels(gains);
 	}
 
+//	lam_complete(module);
 	if (cycle) {
 		HANDLE_ERROR(module.StartCycle(), "Failed to start cycle measurement");
 		if (manual) {
 			clog << "Press any key to stop measurement" << endl;
-			char ch;
-			cin >> ch;
+			getch();
 			module.Stop();
 		}
 	} else {
 		HANDLE_ERROR(module.StartSingleRun(), "Failed to start measurement");
 		if (manual) {
-			clog << "Press any key to start measurement" << endl;
-			char ch;
-			cin >> ch;
-			module.Trigger();
+			HANDLE_ERROR(module.Trigger(), "Software trigger failed");
 		}
 	}
-
 	while(true) {
-		df_timeout_t timeout = 100*1000;
+		df_timeout_t timeout = 1*1000;
 		rv = lam_wait(module, &timeout);
 
 		if (rv & CAMAC_CC_ERRORS) {
+			if (rv & CAMAC_CC_NOT_Q) {
+				break;
+			}
 			cerr << "Error while waiting for LAM: " << CamacErrorPrinter(rv) << endl;
 			return 5;
 		}
-
+		
 		if (rv & CAMAC_CC_BOOL) {
+			if (!module.CheckLAM()) {
+				cerr << "False LAM positive detected" << endl;
+				continue;
+			}
 			break;
+		}
+		if (module.CheckLAM()) {
+			cerr << "False LAM timeout detected " << endl;
+		} else {
+			clog << "Still wating LAM" <<endl;
 		}
 	}
 
@@ -143,16 +151,21 @@ int main(int argc, char * argv[]) {
 					end = true;
 					break;
 				}
-				if (!first) {
+				if (!first)
 					cout << "\t";
-				}
 				first = false;
 				cout << data[chIdx][i];
 			}
 		}
 		cout << "\n";
+		if (!cout) {
+			cerr << "Output fail" << endl;
+			return 10;
+		}
 		++i;
+		if (end)
+			break;
 	}
-
+	cout.flush();
 	return 0;
 }
