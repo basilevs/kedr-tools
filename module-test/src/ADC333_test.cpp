@@ -16,10 +16,10 @@ int main(int argc, char * argv[]) {
 	CamacAddressParser address("k/0/0/0");
 	bool channels[ADC333::CHAN_COUNT] = {false};
 	bool cycle = false, manual = false;
-	unsigned gain = 0;
+	unsigned gain = 0, period = 500;
 
 	int opt;
-	while ((opt = getopt(argc, argv, "hrmc:a:g:")) != -1) {
+	while ((opt = getopt(argc, argv, "hrmc:t:a:g:")) != -1) {
 		switch(opt) {
 			case 'a':	
 				if (address.parse(optarg)) {
@@ -37,6 +37,11 @@ int main(int argc, char * argv[]) {
 				channels[chan-1] = true;
 				break;
 			}
+			case 't':
+			{
+				period = atoi(optarg);
+				break;
+			}
 			case 'r':
 				cycle = true;
 				break;
@@ -50,6 +55,7 @@ int main(int argc, char * argv[]) {
 					return 4;
 				}
 				gain = tmp;
+				break;
 			}
 			default:
 				cout <<
@@ -71,6 +77,11 @@ int main(int argc, char * argv[]) {
 	}
 
 	ADC333 module;
+	module.SetTickInNanoSeconds(period);
+	if (module.GetTickInNanoSeconds() != period) {
+		cerr << "Wrong period" << endl;
+		return 10;
+	}
 	if (module.Bind(address.address()) < 0) {
 		cerr << "Module bind failed for address " << address << endl;
 		return 2;
