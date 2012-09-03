@@ -10,15 +10,14 @@
 #include <curses.h>
 
 
-#define HANDLE_ERROR(x, message) {int a = (x & ~CAMAC_CC_NOT_Q); if (a & CAMAC_CC_ERRORS) {cerr << message << ": " <<CamacErrorPrinter(a) << endl; return 8;}}
+#define HANDLE_ERROR(x, message) {try { x; } catch(ADC333::CamacError & e) {cerr << message << ": " << e.what() << endl; return 8;}}
 using namespace std;
 int main(int argc, char * argv[]) {
 	CamacAddressParser address("k/0/0/0");
 	bool channels[ADC333::CHAN_COUNT] = {false};
 	bool cycle = false, manual = false;
-	unsigned gain = 0, period = 500;
-
-	int opt;
+	int opt, gain = 0;
+	ADC333 module;
 	while ((opt = getopt(argc, argv, "hrmc:t:a:g:")) != -1) {
 		switch(opt) {
 			case 'a':	
@@ -39,7 +38,16 @@ int main(int argc, char * argv[]) {
 			}
 			case 't':
 			{
-				period = atoi(optarg);
+				int period = atoi(optarg);
+				try {
+					module.SetTickInNanoSeconds(period);
+				} catch(...) {
+					cerr <<
+					"Wrong period: " << period << 
+					"\nAllowed periods: 500, 1000, 2000, 4000, 8000, 16000, 32000, 0(for external clock)" 
+					<< endl;
+					return 10;
+				}
 				break;
 			}
 			case 'r':
@@ -76,12 +84,7 @@ int main(int argc, char * argv[]) {
 
 	}
 
-	ADC333 module;
-	module.SetTickInNanoSeconds(period);
-	if (module.GetTickInNanoSeconds() != period) {
-		cerr << "Wrong period" << endl;
-		return 10;
-	}
+	try {
 	if (module.Bind(address.address()) < 0) {
 		cerr << "Module bind failed for address " << address << endl;
 		return 2;
@@ -176,6 +179,10 @@ int main(int argc, char * argv[]) {
 		++i;
 		if (end)
 			break;
+	}
+	} catch(ADC333::CamacError & e) {
+		cerr << e.what() << endl;
+		return 1;
 	}
 	cout.flush();
 	return 0;
