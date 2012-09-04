@@ -7,7 +7,7 @@
 #include <tools/CamacErrorPrinter.h>
 #include <ADC333.h>
 #include <tools/lam_wait.h>
-#include <curses.h>
+#include <stdio.h>
 
 
 #define HANDLE_ERROR(x, message) {try { x; } catch(ADC333::CamacError & e) {cerr << message << ": " << e.what() << endl; return 8;}}
@@ -112,7 +112,7 @@ int main(int argc, char * argv[]) {
 		HANDLE_ERROR(module.StartCycle(), "Failed to start cycle measurement");
 		if (manual) {
 			clog << "Press any key to stop measurement" << endl;
-			getch();
+			getchar();
 			module.Stop();
 		}
 	} else {
