@@ -92,7 +92,7 @@ int main(int argc, char * argv[]) {
 
 	int rv = module.Init();
 	if (rv & CAMAC_CC_ERRORS) {
-		cerr << "Module init failed" << CamacErrorPrinter(rv) << endl;
+		cerr << "Module init failed " << CamacErrorPrinter(rv) << endl;
 		return 3;
 	}
 
@@ -142,8 +142,6 @@ int main(int argc, char * argv[]) {
 		}
 		if (module.CheckLAM()) {
 			cerr << "False LAM timeout detected " << endl;
-		} else {
-			clog << "Still wating LAM" <<endl;
 		}
 	}
 
