@@ -11,4 +11,6 @@
 *.la
 *.a
 .metadata
+adc333
 Debug
+*.cpp.d
