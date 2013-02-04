@@ -4,15 +4,16 @@ MODULES?=$(LIBCAMAC)FedorovClient/camac/dfmodule
 
 
 LDFLAGS+=-L/usr/local/lib -lcamacdfmodule -lcamacdf -ldfc
-UNITS=ADC333 CamacErrorPrinter CamacAddressParser ADC333_test
+CUNITS=ADC333 CamacErrorPrinter CamacAddressParser  IntegralVoltmeter_C0309
+UNITS=$(CUNITS) ADC333_test failLog
 VPATH=$(MODULES):$(MODULES)/tools:$(DIR)src
 CPPFLAGS+= -I/usr/local/include/camac/dfmodule -I$(MODULES) -I$(MODULES)/tools -I$(DIR)/src 
-OBJECTS=$(addsuffix .o,$(UNITS))
+OBJECTS=$(addsuffix .o,$(CUNITS))
 
 DEPGEN=$(CC) -M $(CPPFLAGS) $< | sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' > $@
 
 
-all: adc333
+all: failLog
 
 report:
 	@echo $(MAKEFILE_LIST)
@@ -26,10 +27,13 @@ ifeq "$(filter clean,$(MAKECMDGOALS))" ""
 	-include $(DEP)
 endif
 
-adc333: $(OBJECTS)
+adc333: $(OBJECTS) ADC333_test.o
+	g++ $(CPPFLAGS) $^ $(LDFLAGS) -o $@ 
+
+failLog: $(OBJECTS) failLog.o
 	g++ $(CPPFLAGS) $^ $(LDFLAGS) -o $@ 
 
 clean:
-	-rm -f adc333
+	-rm -f adc333 failLog failLog.o ADC333_test.o
 	-rm -f $(DEP)
 	-rm -f $(OBJECTS)
