@@ -7,19 +7,25 @@
 
 #include <tools/CamacAddressParser.h>
 #include <tools/CamacErrorPrinter.h>
+#include <ZIF_L0323.h>
 #include <IntegralVoltmeter_C0309.h>
+#include <Discriminator_D0302.h>
 #include <ADC333.h>
 #include <tools/lam_wait.h>
 #include <stdio.h>
 
 
 #define HANDLE_ERROR(x, message) {try { x; } catch(ADC333::CamacError & e) {cerr << message << ": " << e.what() << endl; return 8;}}
+
+#define HANDLE_CAMAC_CODE(code, message) {int x = (code); if (x & CAMAC_CC_ERRORS) {cerr << message << ": " << CamacErrorPrinter(x) << endl; return 3;}}
 using namespace std;
+
+
 int main(int argc, char * argv[]) {
-	CamacAddressParser adcAddress("k0607-lsi6/0/0/15");
+	CamacAddressParser adcAddress("k0607-lsi6/0/0/16");
 	CamacAddressParser qdcAddress("k0607-lsi6/0/0/21");
 	CamacAddressParser shaperAddress("k0607-lsi6/0/0/20");
-	CamacAddressParser discrAddress("k0607-lsi6/0/0/18");
+	CamacAddressParser discrAddress("k0607-lsi6/0/0/22");
 	CamacAddressParser & address = adcAddress;
 
 	bool channels[ADC333::CHAN_COUNT] = {false};
@@ -92,6 +98,31 @@ int main(int argc, char * argv[]) {
 		}
 
 	}
+	
+	{	// Configure discriminator
+		Discriminator_D0302 d;
+		if (d.Bind(discrAddress.address()) < 0) {
+			cerr << "Failed to bind to discriminator on address " <<  discrAddress << endl;
+			return 2;
+		}
+		HANDLE_CAMAC_CODE(d.Init(), "Failed to init discriminator " << discrAddress);
+		const u16_t threshold = 1;
+		HANDLE_CAMAC_CODE(d.SetThreshold(threshold, 1), "Failed to set discriminator threshold");
+		u16_t data;		
+		HANDLE_CAMAC_CODE(d.GetThreshold(&data, 1), "Failed to verify threshold");
+//		assert(data == threshold);
+//		HANDLE_CAMAC_CODE(d.Verify(), "Failed to verify discriminator settings");
+	}
+	{ // Configure shaper
+		ZIF_L0323 shaper;
+		if (shaper.Bind(shaperAddress.address()) < 0) {
+			cerr << "Failed to bind to shaper " <<  shaperAddress << endl;
+			return 2;
+		}
+		HANDLE_CAMAC_CODE(shaper.Init(), "Failed to init shaper " << discrAddress);
+		HANDLE_CAMAC_CODE(shaper.SetDuration(0, 1), "Failed to set discriminator threshold");		
+	}
+	
 
 	try {
 	if (module.Bind(address.address()) < 0) {
@@ -117,7 +148,8 @@ int main(int argc, char * argv[]) {
 		module.EnableChannels(gains);
 	}
 	
-	module.SetTickInNanoSeconds(32000);
+//	module.SetTickInNanoSeconds(32000);
+	module.SetTickInNanoSeconds(0);
 	IV_C0309 qdc;
 	{
 		if (qdc.Bind(qdcAddress.address()) < 0) {
@@ -134,26 +166,30 @@ int main(int argc, char * argv[]) {
 	HANDLE_ERROR(module.StartCycle(), "Failed to start cycle measurement");
 	while (true) {
 		df_timeout_t timeout = 1*1000;	
-		int rv = lam_wait(module, & timeout);
+		qdc.Stop();
+		HANDLE_ERROR(qdc.CheckLAM() ^ CAMAC_CC_NOT_Q, "Unexpected LIPA LAM");
+		qdc.Start();
+		int rv = lam_wait(qdc, &timeout);
 		if (rv & CAMAC_CC_ERRORS) {
 			cerr << "Failed to wait LAM from QDC" << endl;
 			break;
 		}
 		rv = qdc.CheckLAM();
-		if (rv & ~CAMAC_CC_NOT_Q & CAMAC_CC_ERRORS) {
+		if (rv & CAMAC_CC_ERRORS) {
 			cerr << "Failed to check LAM from QDC" << endl;
 			break;
 		}
-
-		if (rv & CAMAC_CC_NOT_Q) {
-			continue;
-		}
-		
-			clog << "Got LAM" << endl;
+		double voltage = 0;
+		HANDLE_ERROR(qdc.ReadVoltage(voltage), "Failed to read voltage from LIPA");
+		if (abs(voltage) > 30) {
+			cerr << "Threshold reached in LIPA. Voltage: " << voltage << endl;
+			cout << "#LIPA\t" << voltage << "\n";
 			break;
+		}		
 	}
-	sleep(1);
+	sleep(10);
 	module.Stop();
+	cout << "#STOPTIME\t" << time(0) << "\n";
 	
 	while(true) {
 		df_timeout_t timeout = 1*1000;
@@ -216,6 +252,7 @@ int main(int argc, char * argv[]) {
 		cerr << e.what() << endl;
 		return 1;
 	}
+	cout << "#END" << "\n";
 	cout.flush();
 	return 0;
 }
