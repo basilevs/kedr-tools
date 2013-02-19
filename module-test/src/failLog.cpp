@@ -28,19 +28,28 @@ int main(int argc, char * argv[]) {
 	CamacAddressParser discrAddress("k0607-lsi6/0/0/22");
 	CamacAddressParser & address = adcAddress;
 
-	bool channels[ADC333::CHAN_COUNT] = {false};
-	channels[0]=true;
-	bool cycle = false, manual = false;
+	bool channels[ADC333::CHAN_COUNT] = {false, false,false, 
+false};
 	int opt, gain = 0;
+	float threshold = 100;
+	int waitAfterTriggerSeconds = 10;
 	ADC333 module;
-	while ((opt = getopt(argc, argv, "hrmc:t:a:g:")) != -1) {
+	try {
+	if (module.Bind(address.address()) < 0) {
+		cerr << "Module bind failed for address " << address << endl;
+		return 2;
+	}
+
+	int rv = module.Init();
+	if (rv & CAMAC_CC_ERRORS) {
+		cerr << "Module init failed " << CamacErrorPrinter(rv) << endl;
+		return 3;
+	}
+	module.Reset();
+	module.SetTickInNanoSeconds(0);
+
+	while ((opt = getopt(argc, argv, "hw:c:t:g:p:")) != -1) {
 		switch(opt) {
-			case 'a':	
-				if (address.parse(optarg)) {
-					cerr << "Invalid camac address: " << optarg << endl;
-					return 1;
-				}
-				break;
 			case 'c':
 			{
 				int chan = atoi(optarg);
@@ -49,6 +58,14 @@ int main(int argc, char * argv[]) {
 					return 4;
 				}
 				channels[chan-1] = true;
+				break;
+			}
+			case 'w':
+				waitAfterTriggerSeconds = atoi(optarg);
+				break;
+			case 'p':
+			{
+				threshold = atof(optarg);
 				break;
 			}
 			case 't':
@@ -65,12 +82,6 @@ int main(int argc, char * argv[]) {
 				}
 				break;
 			}
-			case 'r':
-				cycle = true;
-				break;
-			case 'm':
-				manual = true;
-				break;
 			case 'g': {
 				int tmp = atoi(optarg);
 				if (tmp < 0 || tmp > 3) {
@@ -83,17 +94,13 @@ int main(int argc, char * argv[]) {
 			default:
 				cout <<
 				argv[0] <<
-				" -a address [-h] [-c number [-c number ...]]\n"
 				"Options:\n"
-				" -m         - manual trigger. Press Enter to emulate trigger.\n"
-				" -a address - use this address\n"
-				" -r         - cycle mode. Readout stops on signal.\n"
+				" -p         - LIPA threshold\n"
+				" -t         - period in nanoseconds\n"
 				" -g [0..3]  - gain mode.\n"
 				" -c number  - enable a channel [1.."<< ADC333::CHAN_COUNT << "]\n"
 				" -h         - show help\n"
-				"In normal mode program waits for the hardware trigger, performs the measurement and dumps the data.\n"
-				"In cycle mode program measures in cycle, stops on the hardware trigger and dumps latest data measured."
-				<< endl;
+				;
 			return 0;
 		}
 
@@ -124,19 +131,6 @@ int main(int argc, char * argv[]) {
 	}
 	
 
-	try {
-	if (module.Bind(address.address()) < 0) {
-		cerr << "Module bind failed for address " << address << endl;
-		return 2;
-	}
-
-	int rv = module.Init();
-	if (rv & CAMAC_CC_ERRORS) {
-		cerr << "Module init failed " << CamacErrorPrinter(rv) << endl;
-		return 3;
-	}
-	module.Reset();
-
 	{
 		unsigned gains[ADC333::CHAN_COUNT];
 		for (int i = 0; i < ADC333::CHAN_COUNT; ++i) {
@@ -148,8 +142,6 @@ int main(int argc, char * argv[]) {
 		module.EnableChannels(gains);
 	}
 	
-//	module.SetTickInNanoSeconds(32000);
-	module.SetTickInNanoSeconds(0);
 	IV_C0309 qdc;
 	{
 		if (qdc.Bind(qdcAddress.address()) < 0) {
@@ -160,9 +152,11 @@ int main(int argc, char * argv[]) {
 			cerr << "Failed to init qdc" << endl;
 			return 3;
 		}
+		HANDLE_ERROR(qdc.SetControl(0, 3), "Failed to configure LIPA");
 		qdc.ClearLAM();
-		qdc.SetControl(0, 0);
 	}
+	time_t lastStamp = 0;
+	while (true) {
 	HANDLE_ERROR(module.StartCycle(), "Failed to start cycle measurement");
 	while (true) {
 		df_timeout_t timeout = 1*1000;	
@@ -171,23 +165,28 @@ int main(int argc, char * argv[]) {
 		qdc.Start();
 		int rv = lam_wait(qdc, &timeout);
 		if (rv & CAMAC_CC_ERRORS) {
-			cerr << "Failed to wait LAM from QDC" << endl;
+			cerr << "Failed to wait LAM from LIPA" << endl;
 			break;
 		}
 		rv = qdc.CheckLAM();
 		if (rv & CAMAC_CC_ERRORS) {
-			cerr << "Failed to check LAM from QDC" << endl;
+			cerr << "Failed to check LAM from LIPA" << endl;
 			break;
 		}
 		double voltage = 0;
 		HANDLE_ERROR(qdc.ReadVoltage(voltage), "Failed to read voltage from LIPA");
-		if (abs(voltage) > 30) {
+		if (abs(voltage) > threshold) {
 			cerr << "Threshold reached in LIPA. Voltage: " << voltage << endl;
-			cout << "#LIPA\t" << voltage << "\n";
+			cout << "#TRIGGER\t" << voltage << "\n";
 			break;
-		}		
+		}
+		if (lastStamp + 3600 < time(0)) {
+			lastStamp = time(0);
+			string t = ctime(&lastStamp);
+			cout << "#TIMESTAMP\t" << t.substr(0, t.size()-1) << "\t" << voltage << endl;
+		}
 	}
-	sleep(10);
+	sleep(waitAfterTriggerSeconds);
 	module.Stop();
 	cout << "#STOPTIME\t" << time(0) << "\n";
 	
@@ -239,7 +238,6 @@ int main(int argc, char * argv[]) {
 				cout << data[chIdx][i];
 			}
 		}
-		cout << "\n";
 		if (!cout) {
 			cerr << "Output fail" << endl;
 			return 10;
@@ -247,12 +245,14 @@ int main(int argc, char * argv[]) {
 		++i;
 		if (end)
 			break;
+		cout << "\n";
 	}
+	cout << "#END" << "\n";
+	cout.flush();
+	} //Measurement cycle
 	} catch(ADC333::CamacError & e) {
 		cerr << e.what() << endl;
 		return 1;
 	}
-	cout << "#END" << "\n";
-	cout.flush();
 	return 0;
 }
