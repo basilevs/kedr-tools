@@ -97,6 +97,7 @@ false};
 				"Options:\n"
 				" -p         - LIPA threshold\n"
 				" -t         - period in nanoseconds\n"
+				" -w seconds -  wait after trigger\n"
 				" -g [0..3]  - gain mode.\n"
 				" -c number  - enable a channel [1.."<< ADC333::CHAN_COUNT << "]\n"
 				" -h         - show help\n"
